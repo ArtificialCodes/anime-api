@@ -1,5 +1,6 @@
 const cheerio = require("cheerio");
 const { default: Axios } = require("axios");
+const querystring = require("querystring");
 const baseUrl = "https://otakudesu.lol/";
 
 exports.animeList = (req, res) => {
@@ -25,6 +26,7 @@ exports.animeList = (req, res) => {
         res.json({ animeList });
     });
 };
+
 exports.search = (req, res) => {
     const query = req.params.query;
     const fullUrl = `${baseUrl}?s=${query}&post_type=anime`;
@@ -68,6 +70,7 @@ exports.search = (req, res) => {
         res.send(obj);
     });
 };
+
 exports.detailAnime = async (req, res) => {
     const id = req.params.id;
     const fullUrl = baseUrl + `anime/${id}`;
@@ -136,23 +139,96 @@ exports.detailAnime = async (req, res) => {
         console.log(err);
     }
 };
+
 exports.epsAnime = async (req, res) => {
     const id = req.params.id;
     const fullUrl = `${baseUrl}episode/${id}`;
     try {
         const response = await Axios.get(fullUrl);
         const $ = cheerio.load(response.data);
-        const streamElement = $("#lightsVideo").find("#embed_holder");
-        const obj = {};
-        obj.title = $(".venutama > h1").text();
-        obj.baseUrl = fullUrl;
-        obj.id = fullUrl.replace(baseUrl, "");
-        const streamLink = streamElement.find("iframe").attr("src");
-        obj.link_stream = streamLink;
-        res.header("Access-Control-Allow-Origin", "*");
-        res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
-        res.send(obj);
+        const element = $("#embed_holder");
+        const result = {};
+        const m360p = [];
+        const m480p = [];
+        const m720p = [];
+        let id, host;
+        result.id = fullUrl.replace(baseUrl, "");
+        result.link_stream = element.find("iframe").attr("src");
+        element.find(".mirrorstream > .m360p > li").each(function () {
+            id = $(this).find("a").attr("data-content");
+            host = $(this).find("a").text();
+            m360p.push({ quality: 360, host, id });
+        });
+        element.find(".mirrorstream > .m480p > li").each(function () {
+            id = $(this).find("a").attr("data-content");
+            host = $(this).find("a").text();
+            m480p.push({ quality: 480, host, id });
+        });
+        element.find(".mirrorstream > .m720p > li").each(function () {
+            id = $(this).find("a").attr("data-content");
+            host = $(this).find("a").text();
+            m720p.push({ quality: 720, host, id });
+        });
+        result.m360p = m360p;
+        result.m480p = m480p;
+        result.m720p = m720p;
+        res.send(result);
     } catch (err) {
         console.log(err);
     }
+};
+
+exports.home = (req, res) => {
+    const page = req.params.page;
+    Axios.get(`${baseUrl}ongoing-anime/page/${page}`).then((response) => {
+        const $ = cheerio.load(response.data);
+        const result = {};
+        const list = [];
+        const element = $(".rapi");
+        element.find("li").each(function () {
+            id = $(this).find(".thumb > a").attr("href").replace("https://otakudesu.lol/anime/", "").slice(0, -1);
+            url = $(this).find(".thumb > a").attr("href");
+            image = $(this).find(".thumb > a > .thumbz > img").attr("src");
+            episode = $(this).find(".detpost .epz").text();
+            day = $(this).find(".detpost .epztipe").text();
+            date = $(this).find(".detpost .newnime").text();
+            title = $(this).find(".thumb .jdlflm").text();
+            // console.log(image);
+            list.push({ id, url, image, episode, day, date, title });
+        });
+        result.message = "success";
+        result.data = list;
+        res.json(result);
+    });
+};
+
+exports.epsMirror = (req, res) => {
+    const id = req.params.id;
+    const result = {};
+    const conten = JSON.parse(Buffer.from(id, "base64").toString("utf8"));
+    const data = {
+        id: conten.id,
+        i: conten.i,
+        q: conten.q,
+        nonce: "345dc0b288",
+        action: "2a3505c93b0035d3f455df82bf976b84",
+    };
+    const formData = querystring.stringify(data);
+    Axios.post(`${baseUrl}wp-admin/admin-ajax.php`, formData, {
+        headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
+    })
+        .then(function (response) {
+            let respon = Buffer.from(response.data["data"], "base64").toString("utf8");
+            const $ = cheerio.load(respon);
+            result.status = true;
+            result.quality = conten.q;
+            result.link_stream = $("iframe").attr("src");
+            res.json(result);
+        })
+        .catch(function (err) {
+            console.log(err);
+            res.json({ status: false, message: err });
+        });
 };
