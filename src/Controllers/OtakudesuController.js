@@ -178,7 +178,7 @@ exports.epsAnime = async (req, res) => {
     }
 };
 
-exports.home = (req, res) => {
+exports.ongoing = (req, res) => {
     const page = req.params.page;
     Axios.get(`${baseUrl}ongoing-anime/page/${page}`).then((response) => {
         const $ = cheerio.load(response.data);
@@ -202,33 +202,38 @@ exports.home = (req, res) => {
     });
 };
 
-exports.epsMirror = (req, res) => {
+exports.epsMirror = async (req, res) => {
     const id = req.params.id;
+    const url = "https://otakudesu.lol/wp-admin/admin-ajax.php";
     const result = {};
-    const conten = JSON.parse(Buffer.from(id, "base64").toString("utf8"));
-    const data = {
-        id: conten.id,
-        i: conten.i,
-        q: conten.q,
-        nonce: "345dc0b288",
-        action: "2a3505c93b0035d3f455df82bf976b84",
-    };
-    const formData = querystring.stringify(data);
-    Axios.post(`${baseUrl}wp-admin/admin-ajax.php`, formData, {
-        headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
-        },
-    })
-        .then(function (response) {
-            let respon = Buffer.from(response.data["data"], "base64").toString("utf8");
-            const $ = cheerio.load(respon);
-            result.status = true;
-            result.quality = conten.q;
-            result.link_stream = $("iframe").attr("src");
-            res.json(result);
-        })
-        .catch(function (err) {
-            console.log(err);
-            res.json({ status: false, message: err });
-        });
+    try {
+        const getNonce = await axiosPost(url, "action=aa1208d27f29ca340c92c66d1926f13f");
+        const conten = JSON.parse(Buffer.from(id, "base64").toString("utf8"));
+        let data = { id: conten.id, i: conten.i, q: conten.q, nonce: getNonce.data, action: "2a3505c93b0035d3f455df82bf976b84" };
+        data = querystring.stringify(data);
+        const getStream = await axiosPost(url, data);
+        let respon = Buffer.from(getStream["data"], "base64").toString("utf8");
+        const $ = cheerio.load(respon);
+        result.status = true;
+        result.quality = conten.q;
+        result.link_stream = $("iframe").attr("src");
+    } catch (err) {
+        console.log(err);
+        return res.status(500).json({ status: false, message: err.message });
+    }
+    return res.json(result);
 };
+
+function axiosPost(url, data) {
+    const headers = { "Content-Type": "application/x-www-form-urlencoded" };
+    return new Promise((resolve, reject) => {
+        Axios.post(url, data, headers)
+            .then((res) => {
+                resolve(res.data);
+            })
+            .catch((err) => {
+                reject(err);
+                console.error(err);
+            });
+    });
+}
